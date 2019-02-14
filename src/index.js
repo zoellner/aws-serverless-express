@@ -38,7 +38,7 @@ function isContentTypeBinaryMimeType (params) {
   return params.binaryMimeTypes.length > 0 && !!isType.is(params.contentType, params.binaryMimeTypes)
 }
 
-function mapApiGatewayEventToHttpRequest (event, context, socketPath) {
+function mapApiGatewayEventToHttpRequest (event, context, socketPath, options = {}) {
   const headers = Object.assign({}, event.headers)
 
   // NOTE: API Gateway is not setting Content-Length header on requests even when they have a body
@@ -50,8 +50,26 @@ function mapApiGatewayEventToHttpRequest (event, context, socketPath) {
   const clonedEventWithoutBody = clone(event)
   delete clonedEventWithoutBody.body
 
+  const clonedContext = clone(context)
+
+  if (options.apiGatewayEventWhitelist) {
+    Object.keys(clonedEventWithoutBody).forEach((key) => {
+      if (!options.apiGatewayEventWhitelist.includes(key)) {
+        delete clonedEventWithoutBody[key]
+      }
+    })
+  }
+
+  if (options.apiGatewayContextWhitelist) {
+    Object.keys(clonedContext).forEach((key) => {
+      if (!options.apiGatewayContextWhitelist.includes(key)) {
+        delete clonedContext[key]
+      }
+    })
+  }
+
   headers['x-apigateway-event'] = encodeURIComponent(JSON.stringify(clonedEventWithoutBody))
-  headers['x-apigateway-context'] = encodeURIComponent(JSON.stringify(context))
+  headers['x-apigateway-context'] = encodeURIComponent(JSON.stringify(clonedContext))
 
   return {
     method: event.httpMethod,
@@ -131,10 +149,10 @@ function forwardLibraryErrorResponseToApiGateway (error) {
   return errorResponse
 }
 
-function forwardRequestToNodeServer (server, event, context) {
+function forwardRequestToNodeServer (server, event, context, options) {
   return new Promise((resolve) => {
     try {
-      const requestOptions = mapApiGatewayEventToHttpRequest(event, context, getSocketPath(server._socketPathSuffix))
+      const requestOptions = mapApiGatewayEventToHttpRequest(event, context, getSocketPath(server._socketPathSuffix), options)
       const req = http.request(requestOptions, (response) => forwardResponseToApiGateway(server, response).then(resolve))
       if (event.body) {
         const body = getEventBody(event)
@@ -197,13 +215,13 @@ function createServer (requestListener, serverListenCallback, binaryTypes) {
   return server
 }
 
-function proxy (server, event, context) {
+function proxy (server, event, context, options) {
   return new Promise((resolve, reject) => {
     if (server._isListening) {
-      forwardRequestToNodeServer(server, event, context).then(resolve)
+      forwardRequestToNodeServer(server, event, context, options).then(resolve)
     } else {
       startServer(server)
-        .on('listening', () => forwardRequestToNodeServer(server, event, context).then(resolve))
+        .on('listening', () => forwardRequestToNodeServer(server, event, context, options).then(resolve))
     }
   })
 }
