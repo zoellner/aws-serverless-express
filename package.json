@@ -115,7 +115,7 @@
     "install-example-dependencies": "cd examples && npm install --prefix basic-starter basic-starter && cd .."
   },
   "dependencies": {
-    "binary-case": "^1.0.0",
+    "binary-case": "^1.1.4",
     "type-is": "^1.6.16"
   },
   "config": {
