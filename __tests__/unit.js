@@ -120,24 +120,11 @@ class MockServer {
   }
 }
 
-class MockContext {
-  constructor (resolve) {
-    this.resolve = resolve
-  }
-  succeed (successResponse) {
-    this.resolve(successResponse)
-  }
-}
-
 describe('forwardConnectionErrorResponseToApiGateway', () => {
   test('responds with 502 status', () => {
     return new Promise(
       (resolve, reject) => {
-        const context = new MockContext(resolve)
-        const contextResolver = {
-          succeed: (p) => context.succeed(p.response)
-        }
-        awsServerlessExpress.forwardConnectionErrorResponseToApiGateway('ERROR', contextResolver)
+        resolve(awsServerlessExpress.forwardConnectionErrorResponseToApiGateway('ERROR'))
       }
     ).then(successResponse => expect(successResponse).toEqual({
       statusCode: 502,
@@ -151,11 +138,7 @@ describe('forwardLibraryErrorResponseToApiGateway', () => {
   test('responds with 500 status', () => {
     return new Promise(
       (resolve, reject) => {
-        const context = new MockContext(resolve)
-        const contextResolver = {
-          succeed: (p) => context.succeed(p.response)
-        }
-        awsServerlessExpress.forwardLibraryErrorResponseToApiGateway('ERROR', contextResolver)
+        resolve(awsServerlessExpress.forwardLibraryErrorResponseToApiGateway('ERROR'))
       }
     ).then(successResponse => expect(successResponse).toEqual({
       statusCode: 500,
@@ -165,31 +148,19 @@ describe('forwardLibraryErrorResponseToApiGateway', () => {
   })
 })
 
-function getContextResolver (resolve) {
-  const context = new MockContext(resolve)
-  const contextResolver = {
-    succeed: (p) => context.succeed(p.response)
-  }
-
-  return contextResolver
-}
 describe('forwardResponseToApiGateway: header handling', () => {
   test('multiple headers with the same name get transformed', () => {
     const server = new MockServer()
     const headers = {'foo': ['bar', 'baz'], 'Set-Cookie': ['bar', 'baz']}
     const body = 'hello world'
     const response = new MockResponse(200, headers, body)
-    return new Promise(
-      (resolve, reject) => {
-        const contextResolver = getContextResolver(resolve)
-        awsServerlessExpress.forwardResponseToApiGateway(server, response, contextResolver)
-      }
-    ).then(successResponse => expect(successResponse).toEqual({
-      statusCode: 200,
-      body: body,
-      headers: { foo: 'bar,baz', 'SEt-Cookie': 'baz', 'set-Cookie': 'bar' },
-      isBase64Encoded: false
-    }))
+    return awsServerlessExpress.forwardResponseToApiGateway(server, response)
+      .then(successResponse => expect(successResponse).toEqual({
+        statusCode: 200,
+        body: body,
+        headers: { foo: 'bar,baz', 'SEt-Cookie': 'baz', 'set-Cookie': 'bar' },
+        isBase64Encoded: false
+      }))
   })
 })
 
@@ -199,17 +170,13 @@ describe('forwardResponseToApiGateway: content-type encoding', () => {
     const headers = {'foo': 'bar'}
     const body = 'hello world'
     const response = new MockResponse(200, headers, body)
-    return new Promise(
-      (resolve, reject) => {
-        const contextResolver = getContextResolver(resolve)
-        awsServerlessExpress.forwardResponseToApiGateway(server, response, contextResolver)
-      }
-    ).then(successResponse => expect(successResponse).toEqual({
-      statusCode: 200,
-      body: body,
-      headers: headers,
-      isBase64Encoded: false
-    }))
+    return awsServerlessExpress.forwardResponseToApiGateway(server, response)
+      .then(successResponse => expect(successResponse).toEqual({
+        statusCode: 200,
+        body: body,
+        headers: headers,
+        isBase64Encoded: false
+      }))
   })
 
   test('content-type image/jpeg base64 encoded', () => {
@@ -217,17 +184,13 @@ describe('forwardResponseToApiGateway: content-type encoding', () => {
     const headers = {'content-type': 'image/jpeg'}
     const body = 'hello world'
     const response = new MockResponse(200, headers, body)
-    return new Promise(
-      (resolve, reject) => {
-        const contextResolver = getContextResolver(resolve)
-        awsServerlessExpress.forwardResponseToApiGateway(server, response, contextResolver)
-      }
-    ).then(successResponse => expect(successResponse).toEqual({
-      statusCode: 200,
-      body: Buffer.from(body).toString('base64'),
-      headers: headers,
-      isBase64Encoded: true
-    }))
+    return awsServerlessExpress.forwardResponseToApiGateway(server, response)
+      .then(successResponse => expect(successResponse).toEqual({
+        statusCode: 200,
+        body: Buffer.from(body).toString('base64'),
+        headers: headers,
+        isBase64Encoded: true
+      }))
   })
 
   test('content-type application/json', () => {
@@ -235,17 +198,13 @@ describe('forwardResponseToApiGateway: content-type encoding', () => {
     const headers = {'content-type': 'application/json'}
     const body = JSON.stringify({'hello': 'world'})
     const response = new MockResponse(200, headers, body)
-    return new Promise(
-      (resolve, reject) => {
-        const contextResolver = getContextResolver(resolve)
-        awsServerlessExpress.forwardResponseToApiGateway(server, response, contextResolver)
-      }
-    ).then(successResponse => expect(successResponse).toEqual({
-      statusCode: 200,
-      body: body,
-      headers: headers,
-      isBase64Encoded: false
-    }))
+    return awsServerlessExpress.forwardResponseToApiGateway(server, response)
+      .then(successResponse => expect(successResponse).toEqual({
+        statusCode: 200,
+        body: body,
+        headers: headers,
+        isBase64Encoded: false
+      }))
   })
 
   test('wildcards in binary types array', () => {
@@ -253,17 +212,13 @@ describe('forwardResponseToApiGateway: content-type encoding', () => {
     const headers = {'content-type': 'image/jpeg'}
     const body = 'hello world'
     const response = new MockResponse(200, headers, body)
-    return new Promise(
-      (resolve, reject) => {
-        const contextResolver = getContextResolver(resolve)
-        awsServerlessExpress.forwardResponseToApiGateway(server, response, contextResolver)
-      }
-    ).then(successResponse => expect(successResponse).toEqual({
-      statusCode: 200,
-      body: Buffer.from(body).toString('base64'),
-      headers: headers,
-      isBase64Encoded: true
-    }))
+    return awsServerlessExpress.forwardResponseToApiGateway(server, response)
+      .then(successResponse => expect(successResponse).toEqual({
+        statusCode: 200,
+        body: Buffer.from(body).toString('base64'),
+        headers: headers,
+        isBase64Encoded: true
+      }))
   })
 
   test('extensions in binary types array', () => {
@@ -271,65 +226,12 @@ describe('forwardResponseToApiGateway: content-type encoding', () => {
     const headers = {'content-type': 'image/png'}
     const body = 'hello world'
     const response = new MockResponse(200, headers, body)
-    return new Promise(
-      (resolve, reject) => {
-        const contextResolver = getContextResolver(resolve)
-        awsServerlessExpress.forwardResponseToApiGateway(server, response, contextResolver)
-      }
-    ).then(successResponse => expect(successResponse).toEqual({
-      statusCode: 200,
-      body: Buffer.from(body).toString('base64'),
-      headers: headers,
-      isBase64Encoded: true
-    }))
-  })
-})
-
-describe('makeResolver', () => {
-  test('CONTEXT_SUCCEED (specified)', () => {
-    return new Promise(
-      (resolve, reject) => {
-        const context = new MockContext(resolve)
-        const contextResolver = awsServerlessExpress.makeResolver({
-          context,
-          resolutionMode: 'CONTEXT_SUCCEED'
-        })
-
-        return contextResolver.succeed({
-          response: 'success'
-        })
-      }).then(successResponse => expect(successResponse).toEqual('success'))
-  })
-
-  test('CALLBACK', () => {
-    const callback = (e, response) => response
-    const callbackResolver = awsServerlessExpress.makeResolver({
-      callback,
-      resolutionMode: 'CALLBACK'
-    })
-    const successResponse = callbackResolver.succeed({
-      response: 'success'
-    })
-
-    expect(successResponse).toEqual('success')
-  })
-
-  test('PROMISE', () => {
-    return new Promise((resolve, reject) => {
-      const promise = {
-        resolve,
-        reject
-      }
-      const promiseResolver = awsServerlessExpress.makeResolver({
-        promise,
-        resolutionMode: 'PROMISE'
-      })
-
-      return promiseResolver.succeed({
-        response: 'success'
-      })
-    }).then(successResponse => {
-      expect(successResponse).toEqual('success')
-    })
+    return awsServerlessExpress.forwardResponseToApiGateway(server, response)
+      .then(successResponse => expect(successResponse).toEqual({
+        statusCode: 200,
+        body: Buffer.from(body).toString('base64'),
+        headers: headers,
+        isBase64Encoded: true
+      }))
   })
 })

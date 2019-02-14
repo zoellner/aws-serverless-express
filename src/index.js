@@ -65,48 +65,50 @@ function mapApiGatewayEventToHttpRequest (event, context, socketPath) {
   }
 }
 
-function forwardResponseToApiGateway (server, response, resolver) {
-  let buf = []
+function forwardResponseToApiGateway (server, response) {
+  return new Promise((resolve) => {
+    let buf = []
 
-  response
-    .on('data', (chunk) => buf.push(chunk))
-    .on('end', () => {
-      const bodyBuffer = Buffer.concat(buf)
-      const statusCode = response.statusCode
-      const headers = response.headers
+    response
+      .on('data', (chunk) => buf.push(chunk))
+      .on('end', () => {
+        const bodyBuffer = Buffer.concat(buf)
+        const statusCode = response.statusCode
+        const headers = response.headers
 
-      // chunked transfer not currently supported by API Gateway
-      /* istanbul ignore else */
-      if (headers['transfer-encoding'] === 'chunked') {
-        delete headers['transfer-encoding']
-      }
+        // chunked transfer not currently supported by API Gateway
+        /* istanbul ignore else */
+        if (headers['transfer-encoding'] === 'chunked') {
+          delete headers['transfer-encoding']
+        }
 
-      // HACK: modifies header casing to get around API Gateway's limitation of not allowing multiple
-      // headers with the same name, as discussed on the AWS Forum https://forums.aws.amazon.com/message.jspa?messageID=725953#725953
-      Object.keys(headers)
-        .forEach(h => {
-          if (Array.isArray(headers[h])) {
-            if (h.toLowerCase() === 'set-cookie') {
-              headers[h].forEach((value, i) => {
-                headers[binarycase(h, i + 1)] = value
-              })
-              delete headers[h]
-            } else {
-              headers[h] = headers[h].join(',')
+        // HACK: modifies header casing to get around API Gateway's limitation of not allowing multiple
+        // headers with the same name, as discussed on the AWS Forum https://forums.aws.amazon.com/message.jspa?messageID=725953#725953
+        Object.keys(headers)
+          .forEach(h => {
+            if (Array.isArray(headers[h])) {
+              if (h.toLowerCase() === 'set-cookie') {
+                headers[h].forEach((value, i) => {
+                  headers[binarycase(h, i + 1)] = value
+                })
+                delete headers[h]
+              } else {
+                headers[h] = headers[h].join(',')
+              }
             }
-          }
-        })
+          })
 
-      const contentType = getContentType({ contentTypeHeader: headers['content-type'] })
-      const isBase64Encoded = isContentTypeBinaryMimeType({ contentType, binaryMimeTypes: server._binaryTypes })
-      const body = bodyBuffer.toString(isBase64Encoded ? 'base64' : 'utf8')
-      const successResponse = {statusCode, body, headers, isBase64Encoded}
+        const contentType = getContentType({ contentTypeHeader: headers['content-type'] })
+        const isBase64Encoded = isContentTypeBinaryMimeType({ contentType, binaryMimeTypes: server._binaryTypes })
+        const body = bodyBuffer.toString(isBase64Encoded ? 'base64' : 'utf8')
+        const successResponse = {statusCode, body, headers, isBase64Encoded}
 
-      resolver.succeed({ response: successResponse })
-    })
+        resolve(successResponse)
+      })
+  })
 }
 
-function forwardConnectionErrorResponseToApiGateway (error, resolver) {
+function forwardConnectionErrorResponseToApiGateway (error) {
   console.log('ERROR: aws-serverless-express connection error')
   console.error(error)
   const errorResponse = {
@@ -115,10 +117,10 @@ function forwardConnectionErrorResponseToApiGateway (error, resolver) {
     headers: {}
   }
 
-  resolver.succeed({ response: errorResponse })
+  return errorResponse
 }
 
-function forwardLibraryErrorResponseToApiGateway (error, resolver) {
+function forwardLibraryErrorResponseToApiGateway (error) {
   console.log('ERROR: aws-serverless-express error')
   console.error(error)
   const errorResponse = {
@@ -126,26 +128,27 @@ function forwardLibraryErrorResponseToApiGateway (error, resolver) {
     body: '',
     headers: {}
   }
-
-  resolver.succeed({ response: errorResponse })
+  return errorResponse
 }
 
-function forwardRequestToNodeServer (server, event, context, resolver) {
-  try {
-    const requestOptions = mapApiGatewayEventToHttpRequest(event, context, getSocketPath(server._socketPathSuffix))
-    const req = http.request(requestOptions, (response) => forwardResponseToApiGateway(server, response, resolver))
-    if (event.body) {
-      const body = getEventBody(event)
+function forwardRequestToNodeServer (server, event, context) {
+  return new Promise((resolve) => {
+    try {
+      const requestOptions = mapApiGatewayEventToHttpRequest(event, context, getSocketPath(server._socketPathSuffix))
+      const req = http.request(requestOptions, (response) => forwardResponseToApiGateway(server, response).then(resolve))
+      if (event.body) {
+        const body = getEventBody(event)
 
-      req.write(body)
+        req.write(body)
+      }
+
+      req.on('error', (error) => resolve(forwardConnectionErrorResponseToApiGateway(error)))
+        .end()
+    } catch (error) {
+      resolve(forwardLibraryErrorResponseToApiGateway(error))
+      return server
     }
-
-    req.on('error', (error) => forwardConnectionErrorResponseToApiGateway(error, resolver))
-      .end()
-  } catch (error) {
-    forwardLibraryErrorResponseToApiGateway(error, resolver)
-    return server
-  }
+  })
 }
 
 function startServer (server) {
@@ -194,57 +197,15 @@ function createServer (requestListener, serverListenCallback, binaryTypes) {
   return server
 }
 
-function proxy (server, event, context, resolutionMode, callback) {
-  // DEPRECATED: Legacy support
-  if (!resolutionMode) {
-    const resolver = makeResolver({ context, resolutionMode: 'CONTEXT_SUCCEED' })
+function proxy (server, event, context) {
+  return new Promise((resolve, reject) => {
     if (server._isListening) {
-      forwardRequestToNodeServer(server, event, context, resolver)
-      return server
+      forwardRequestToNodeServer(server, event, context).then(resolve)
     } else {
-      return startServer(server)
-        .on('listening', () => proxy(server, event, context))
+      startServer(server)
+        .on('listening', () => forwardRequestToNodeServer(server, event, context).then(resolve))
     }
-  }
-
-  return {
-    promise: new Promise((resolve, reject) => {
-      const promise = {
-        resolve,
-        reject
-      }
-      const resolver = makeResolver({
-        context,
-        callback,
-        promise,
-        resolutionMode
-      })
-
-      if (server._isListening) {
-        forwardRequestToNodeServer(server, event, context, resolver)
-      } else {
-        startServer(server)
-          .on('listening', () => forwardRequestToNodeServer(server, event, context, resolver))
-      }
-    })
-  }
-}
-
-function makeResolver (params/* {
-  context,
-  callback,
-  promise,
-  resolutionMode
-} */) {
-  return {
-    succeed: (params2/* {
-      response
-    } */) => {
-      if (params.resolutionMode === 'CONTEXT_SUCCEED') return params.context.succeed(params2.response)
-      if (params.resolutionMode === 'CALLBACK') return params.callback(null, params2.response)
-      if (params.resolutionMode === 'PROMISE') return params.promise.resolve(params2.response)
-    }
-  }
+  })
 }
 
 exports.createServer = createServer
@@ -260,5 +221,4 @@ if (process.env.NODE_ENV === 'test') {
   exports.forwardRequestToNodeServer = forwardRequestToNodeServer
   exports.startServer = startServer
   exports.getSocketPath = getSocketPath
-  exports.makeResolver = makeResolver
 }
